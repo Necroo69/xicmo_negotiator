@@ -1,0 +1,5 @@
+anthropic
+pydantic
+jsonschema
+python-dotenv
+tqdm

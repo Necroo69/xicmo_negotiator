@@ -1,0 +1,21 @@
+# Environment
+.env
+
+# Data — raw and clean are generated, never committed
+data/raw/*
+data/clean/*
+
+# Keep the folders themselves
+!data/raw/.gitkeep
+!data/clean/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
