@@ -115,26 +115,56 @@ def single_turn_examples(conv: dict) -> list[dict]:
     return out
 
 
+_LEDGER_FIELDS = ("price", "deliverables", "payout_method", "email")
+
+
+def _carry_forward(deal_states) -> None:
+    """Enforce the monotonic ledger rule on a conversation's deal_states.
+
+    Once a ledger field (price/deliverables/payout_method/email) is set, it must
+    never regress to null on a later turn — it may only be updated to a new
+    value. Where a turn left a previously-set field null, carry the last non-null
+    value forward. Mutates the DealState objects in place. `status` and
+    `escalate_to_human` are left untouched (no schema change).
+    """
+    last = {f: None for f in _LEDGER_FIELDS}
+    for ds in deal_states:
+        for f in _LEDGER_FIELDS:
+            cur = getattr(ds, f)
+            if cur is None and last[f] is not None:
+                setattr(ds, f, last[f])   # fix an illegal value->null regression
+            elif cur is not None:
+                last[f] = cur
+
+
 def multi_turn_example(conv: dict) -> dict | None:
     """One {messages:[system, (user,assistant)*]} per conversation.
 
     Reconstructs the teacher's actual view: system holds the budget, each user
     turn is the creator's raw message, each assistant turn is the canonical JSON.
+    deal_state is corrected to a monotonic ledger (fields never regress to null).
     """
-    messages = [{"role": "system", "content": _system_prompt_for(conv)}]
+    parsed = []
     for t in conv.get("turns", []):
         if t.get("parse_error"):
             continue
         try:
-            assistant = parse_model_reply(t["negotiator_raw"]).to_json()
+            mo = parse_model_reply(t["negotiator_raw"])
         except ContractError:
             continue
-        messages.append({"role": "user", "content": t["creator_message"]})
-        messages.append({"role": "assistant", "content": assistant})
+        parsed.append((t["creator_message"], mo))
 
     # Need at least one full user/assistant exchange to be usable.
-    if len(messages) < 3:
+    if not parsed:
         return None
+
+    _carry_forward([mo.deal_state for _, mo in parsed])
+
+    messages = [{"role": "system", "content": _system_prompt_for(conv)}]
+    for creator_msg, mo in parsed:
+        messages.append({"role": "user", "content": creator_msg})
+        messages.append({"role": "assistant", "content": mo.to_json()})
+
     return {"messages": messages}
 
 
